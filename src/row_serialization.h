@@ -1,13 +1,8 @@
-#ifdef __APPLE__
-	#include <CommonCrypto/CommonDigest.h>
-	#define MD5_CTX CC_MD5_CTX
-	#define MD5_Init CC_MD5_Init
-	#define MD5_Update CC_MD5_Update
-	#define MD5_Final CC_MD5_Final
-	#define MD5_DIGEST_LENGTH CC_MD5_DIGEST_LENGTH
-#else
-	#include <openssl/md5.h>
-#endif
+// extern "C" {
+	#include "siphash-c/src/siphash.h"
+// }
+
+#define MAX_HASH_SIZE 8
 
 template <typename OutputStream>
 struct RowPacker {
@@ -35,7 +30,7 @@ struct Hash {
 	inline std::string to_string() const { return string(md_value, md_value + md_len); }
 
 	unsigned int md_len;
-	unsigned char md_value[MAX_DIGEST_LENGTH];
+	unsigned char md_value[MAX_HASH_SIZE];
 };
 
 template <typename OutputStream>
@@ -49,15 +44,21 @@ inline bool operator == (const Hash &hash, const string &str) {
 
 struct RowHasher {
 	RowHasher(): row_count(0), size(0), row_packer(*this), partial_used(0) {
-		MD5_Init(&ctx);
+		hasher = sip_hash_new((uint8_t *)"                ", 2, 4);
+		if (!hasher) throw runtime_error("Unable to create hasher");
+	}
+
+	~RowHasher() {
+		sip_hash_free(hasher);
 	}
 
 	const Hash &finish() {
 		if (partial_used) {
+			memset(partial_buf + partial_used, 0, sizeof(partial_buf) - partial_used);
 			update_hash(partial_buf, partial_used);
 		}
-		hash.md_len = MD5_DIGEST_LENGTH;
-		MD5_Final(hash.md_value, &ctx);
+		hash.md_len = sizeof(uint64_t);
+		if (!sip_hash_final_integer(hasher, (uint64_t *)hash.md_value)) throw runtime_error("Unable to final hasher");
 		return hash;
 	}
 
@@ -78,7 +79,7 @@ struct RowHasher {
 	}
 
 	inline void update_hash(const uint8_t *buf, size_t bytes) {
-		MD5_Update(&ctx, buf, bytes);
+		sip_hash_update(hasher, (uint8_t *)buf, bytes);
 		size += bytes;
 	}
 
@@ -119,11 +120,11 @@ struct RowHasher {
 		}
 	}
 
-	MD5_CTX ctx;
+	sip_hash *hasher;
 	size_t row_count;
 	size_t size;
 	Packer<RowHasher> row_packer;
-	uint8_t partial_buf[16];
+	uint8_t partial_buf[128]; // 8 is the minimum siphash can tolerate, but gives poor performance
 	size_t partial_used;
 	Hash hash;
 };

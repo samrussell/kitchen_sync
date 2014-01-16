@@ -1,4 +1,5 @@
 project(kitchen_sync CXX)
+enable_language(C)
 
 cmake_minimum_required(VERSION 2.6)
 
@@ -36,12 +37,9 @@ set(ks_SRCS src/ks.cpp src/db_url.cpp src/process.cpp src/unidirectional_pipe.cp
 add_executable(ks ${ks_SRCS})
 target_link_libraries(ks ${Boost_LIBRARIES})
 
-# the endpoints hash data using OpenSSL
-find_package(OpenSSL REQUIRED)
-include_directories(${OPENSSL_INCLUDE_DIRS})
-
 # the endpoints do the actual work
-set(ks_endpoint_SRCS src/sql_functions.cpp src/schema.cpp src/schema_functions.cpp src/filters.cpp src/abortable_barrier.cpp src/sync_queue.cpp)
+set(ks_endpoint_SRCS src/sql_functions.cpp src/schema.cpp src/schema_functions.cpp src/filters.cpp src/abortable_barrier.cpp src/sync_queue.cpp src/siphash-c/src/siphash.c)
+set_source_files_properties(src/siphash-c/src/siphash.c PROPERTIES LANGUAGE CXX)
 set(ks_endpoint_LIBS ${OPENSSL_LIBRARIES} ${YamlCPP_LIBRARIES} ${Boost_LIBRARIES})
 
 # turn on debugging symbols

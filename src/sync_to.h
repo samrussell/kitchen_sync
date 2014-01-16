@@ -75,6 +75,7 @@ struct SyncToWorker {
 
 		// eagerly close the streams so that the SSH session terminates promptly on aborts
 		output_stream.close();
+		input_stream.close();
 	}
 
 	void negotiate_protocol() {
