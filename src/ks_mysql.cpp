@@ -172,6 +172,7 @@ MySQLClient::MySQLClient(
 	mysql_init(&mysql);
 	mysql_options(&mysql, MYSQL_READ_DEFAULT_GROUP, "ks_mysql");
 	mysql_options(&mysql, MYSQL_SET_CHARSET_NAME, "binary");
+	mysql_options(&mysql, MYSQL_OPT_COMPRESS, NULL);
 	if (!mysql_real_connect(&mysql, database_host, database_username, database_password, database_name, port, socket, 0)) {
 		throw runtime_error(mysql_error(&mysql));
 	}
