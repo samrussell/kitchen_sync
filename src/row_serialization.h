@@ -1,13 +1,5 @@
-#ifdef __APPLE__
-	#include <CommonCrypto/CommonDigest.h>
-	#define MD5_CTX CC_MD5_CTX
-	#define MD5_Init CC_MD5_Init
-	#define MD5_Update CC_MD5_Update
-	#define MD5_Final CC_MD5_Final
-	#define MD5_DIGEST_LENGTH CC_MD5_DIGEST_LENGTH
-#else
-	#include <openssl/md5.h>
-#endif
+#include <assert.h>
+#include "vmac/vmac.h"
 
 template <typename OutputStream>
 struct RowPacker {
@@ -32,32 +24,29 @@ struct RowPacker {
 #define MAX_DIGEST_LENGTH MD5_DIGEST_LENGTH
 
 struct Hash {
-	inline std::string to_string() const { return string(md_value, md_value + md_len); }
+	inline std::string to_string() const { return string((uint8_t*)md_value, (uint8_t*)(md_value + 2)); }
 
-	unsigned int md_len;
-	unsigned char md_value[MAX_DIGEST_LENGTH];
+	uint64_t md_value[2];
 };
 
 template <typename OutputStream>
 inline void operator << (Packer<OutputStream> &packer, const Hash &hash) {
-	packer.pack_raw((const uint8_t *)hash.md_value, hash.md_len);
+	packer.pack_raw((const uint8_t *)hash.md_value, sizeof(hash.md_value));
 }
 
 inline bool operator == (const Hash &hash, const string &str) {
-	return (hash.md_len == str.length() && memcmp(str.c_str(), hash.md_value, hash.md_len) == 0);
+	return (sizeof(hash.md_value) == str.length() && memcmp(str.c_str(), hash.md_value, sizeof(hash.md_value)) == 0);
 }
 
 struct RowHasher {
 	RowHasher(): row_count(0), size(0), row_packer(*this), partial_used(0) {
-		MD5_Init(&ctx);
+		vmac_set_key((unsigned char *)"abcdefghijklmnop", &ctx);
 	}
 
 	const Hash &finish() {
-		if (partial_used) {
-			update_hash(partial_buf, partial_used);
-		}
-		hash.md_len = MD5_DIGEST_LENGTH;
-		MD5_Final(hash.md_value, &ctx);
+		assert(VMAC_TAG_LEN == 16*8);
+		memset(partial_buf + partial_used, 0, sizeof(partial_buf) - partial_used);
+		hash.md_value[0] = vhash(partial_buf, partial_used, hash.md_value + 1, &ctx);
 		return hash;
 	}
 
@@ -78,7 +67,8 @@ struct RowHasher {
 	}
 
 	inline void update_hash(const uint8_t *buf, size_t bytes) {
-		MD5_Update(&ctx, buf, bytes);
+		assert(!(bytes % 16)); // see vmac.h
+		vhash_update((unsigned char *)buf, bytes, &ctx);
 		size += bytes;
 	}
 
@@ -119,11 +109,11 @@ struct RowHasher {
 		}
 	}
 
-	MD5_CTX ctx;
+	vmac_ctx_t ctx;
 	size_t row_count;
 	size_t size;
 	Packer<RowHasher> row_packer;
-	uint8_t partial_buf[16];
+	uint8_t partial_buf[VMAC_NHBYTES];
 	size_t partial_used;
 	Hash hash;
 };
