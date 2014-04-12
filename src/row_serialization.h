@@ -48,11 +48,14 @@ inline bool operator == (const Hash &hash, const string &str) {
 }
 
 struct RowHasher {
-	RowHasher(): row_count(0), size(0), row_packer(*this) {
+	RowHasher(): row_count(0), size(0), row_packer(*this), partial_used(0) {
 		MD5_Init(&ctx);
 	}
 
 	const Hash &finish() {
+		if (partial_used) {
+			update_hash(partial_buf, partial_used);
+		}
 		hash.md_len = MD5_DIGEST_LENGTH;
 		MD5_Final(hash.md_value, &ctx);
 		return hash;
@@ -80,13 +83,48 @@ struct RowHasher {
 	}
 
 	inline void write(const uint8_t *buf, size_t bytes) {
-		update_hash(buf, bytes);
+		if (partial_used) {
+			// we already have some data (< 1 hashable block) in the buffer; calculate how much more can fit
+			size_t partial_remaining = sizeof(partial_buf) - partial_used;
+
+			if (bytes < partial_remaining) {
+				// the given data isn't enough to fill up a hashable block, so just add it to the buffer
+				memcpy(partial_buf + partial_used, buf, bytes);
+				partial_used += bytes;
+				return;
+			}
+
+			// the given data is enough to fill up a hashable block; do that and hash it
+			memcpy(partial_buf + partial_used, buf, partial_remaining);
+			update_hash(partial_buf, sizeof(partial_buf));
+			bytes -= partial_remaining;
+			buf   += partial_remaining;
+			partial_used = 0;
+			// fall through to deal with any remaining data
+		}
+
+		if (bytes >= sizeof(partial_buf)) {
+			// the remaining data is enough to fill up at least one hashable block, hash those without copying
+			size_t bytes_to_hash = bytes - bytes % sizeof(partial_buf);
+			update_hash(buf, bytes_to_hash);
+			bytes -= bytes_to_hash;
+			buf   += bytes_to_hash;
+			// fall through to deal with any remaining data
+		}
+
+		if (bytes) {
+			// the remaining data isn't enough to fill up a hashable block, accumulate it and wait for more
+			memcpy(partial_buf, buf, bytes);
+			partial_used = bytes;
+		}
 	}
 
 	MD5_CTX ctx;
 	size_t row_count;
 	size_t size;
 	Packer<RowHasher> row_packer;
+	uint8_t partial_buf[16];
+	size_t partial_used;
 	Hash hash;
 };
 
