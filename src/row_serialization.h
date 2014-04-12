@@ -49,12 +49,12 @@ inline bool operator == (const Hash &hash, const string &str) {
 
 struct RowHasher {
 	RowHasher(): row_count(0), size(0), row_packer(*this) {
-		MD5_Init(&mdctx);
+		MD5_Init(&ctx);
 	}
 
 	const Hash &finish() {
 		hash.md_len = MD5_DIGEST_LENGTH;
-		MD5_Final(hash.md_value, &mdctx);
+		MD5_Final(hash.md_value, &ctx);
 		return hash;
 	}
 
@@ -74,12 +74,16 @@ struct RowHasher {
 		}
 	}
 
-	inline void write(const uint8_t *buf, size_t bytes) {
-		MD5_Update(&mdctx, buf, bytes);
+	inline void update_hash(const uint8_t *buf, size_t bytes) {
+		MD5_Update(&ctx, buf, bytes);
 		size += bytes;
 	}
 
-	MD5_CTX mdctx;
+	inline void write(const uint8_t *buf, size_t bytes) {
+		update_hash(buf, bytes);
+	}
+
+	MD5_CTX ctx;
 	size_t row_count;
 	size_t size;
 	Packer<RowHasher> row_packer;
