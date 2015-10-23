@@ -287,7 +287,7 @@ Verbs = Commands.constants.each_with_object({}) {|k, results| results[Commands.c
 
 module KitchenSync
   class TestCase < Test::Unit::TestCase
-    PROTOCOL_VERSION_SUPPORTED = 6
+    PROTOCOL_VERSION_SUPPORTED = 7
 
     undef_method :default_test if instance_methods.include? 'default_test' or
                                   instance_methods.include? :default_test

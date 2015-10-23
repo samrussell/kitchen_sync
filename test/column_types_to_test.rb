@@ -24,7 +24,9 @@ class ColumnTypesToTest < KitchenSync::EndpointTestCase
     expect_command Commands::SCHEMA
     send_command   Commands::SCHEMA, ["tables" => [trimmed_misctbl_def]]
     expect_command Commands::OPEN, ["misctbl"]
-    send_command   Commands::HASH_NEXT, [[], @keys[0], hash_of(@rows[0..0])]
+    send_command   Commands::HASH_NEXT,
+                   [[], @keys[0]],
+                   [hash_of(@rows[0..0])]
     expect_command Commands::ROWS,
                    [@keys[0], []]
     send_results   Commands::ROWS,
