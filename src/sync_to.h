@@ -324,27 +324,29 @@ struct SyncToWorker {
 
 	void handle_hash_next_command(const Table &table) {
 		// the last hash we sent them matched, and so they've moved on to the next set of rows and sent us the hash
-		ColumnValues prev_key, last_key;
+		ColumnValues prev_key;
+		size_t rows_to_hash;
 		string hash;
-		read_array(input, prev_key, last_key);
+		read_array(input, prev_key, rows_to_hash);
 		read_all_arguments(input, hash);
-		if (verbose >= VERY_VERBOSE) cout << "-> hash " << table.name << ' ' << values_list(client, table, prev_key) << ' ' << values_list(client, table, last_key) << endl;
+		if (verbose >= VERY_VERBOSE) cout << "-> hash " << table.name << ' ' << values_list(client, table, prev_key) << ' ' << rows_to_hash << endl;
 
 		// after each hash command received it's our turn to send the next command
-		check_hash_and_choose_next_range(*this, table, nullptr, prev_key, last_key, nullptr, hash, target_minimum_block_size, target_maximum_block_size);
+		check_hash_and_choose_next_range(*this, table, nullptr, prev_key, rows_to_hash, nullptr, hash, target_minimum_block_size, target_maximum_block_size);
 	}
 
 	void handle_hash_fail_command(const Table &table) {
 		// the last hash we sent them didn't match, so they've reduced the key range and sent us back
 		// the hash for a smaller set of rows (but not so small that they sent back the data instead)
-		ColumnValues prev_key, last_key, failed_last_key;
+		ColumnValues prev_key, failed_last_key;
+		size_t rows_to_hash;
 		string hash;
-		read_array(input, prev_key, last_key, failed_last_key);
+		read_array(input, prev_key, rows_to_hash, failed_last_key);
 		read_all_arguments(input, hash);
-		if (verbose >= VERY_VERBOSE) cout << "-> hash " << table.name << ' ' << values_list(client, table, prev_key) << ' ' << values_list(client, table, last_key) << " last-failure " << values_list(client, table, failed_last_key) << endl;
+		if (verbose >= VERY_VERBOSE) cout << "-> hash " << table.name << ' ' << values_list(client, table, prev_key) << ' ' << rows_to_hash << " last-failure " << values_list(client, table, failed_last_key) << endl;
 
 		// after each hash command received it's our turn to send the next command
-		check_hash_and_choose_next_range(*this, table, nullptr, prev_key, last_key, &failed_last_key, hash, target_minimum_block_size, target_maximum_block_size);
+		check_hash_and_choose_next_range(*this, table, nullptr, prev_key, rows_to_hash, &failed_last_key, hash, target_minimum_block_size, target_maximum_block_size);
 	}
 
 	bool handle_rows_command(const Table &table, RowReplacer<DatabaseClient> &row_replacer) {
@@ -364,12 +366,13 @@ struct SyncToWorker {
 
 	void handle_rows_and_hash_next_command(const Table &table, RowReplacer<DatabaseClient> &row_replacer) {
 		// combo of the above ROWS and HASH_NEXT commands
-		ColumnValues prev_key, last_key, next_key;
+		ColumnValues prev_key, last_key;
+		size_t rows_to_hash;
 		string hash;
-		read_array(input, prev_key, last_key, next_key); // the first array gives the range arguments and the next the hash, which is then followed by one array for each row
+		read_array(input, prev_key, last_key, rows_to_hash); // the first array gives the range arguments and the next the hash, which is then followed by one array for each row
 		read_array(input, hash);
 		if (verbose >= VERY_VERBOSE) cout << "-> rows " << table.name << ' ' << values_list(client, table, prev_key) << ' ' << values_list(client, table, last_key) << " +" << endl;
-		if (verbose >= VERY_VERBOSE) cout << "-> hash " << table.name << ' ' << values_list(client, table, last_key) << ' ' << values_list(client, table, next_key) << endl;
+		if (verbose >= VERY_VERBOSE) cout << "-> hash " << table.name << ' ' << values_list(client, table, last_key) << ' ' << rows_to_hash << endl;
 
 		// after each hash command received it's our turn to send the next command; we check
 		// the hash and send the command *before* we stream in the rows that we're being sent
@@ -378,35 +381,36 @@ struct SyncToWorker {
 		// fit the command we send back in the kernel send buffer to guarantee there is no
 		// deadlock; it's never been smaller than a page on any supported OS, and has been
 		// defaulted to much larger values for some years.
-		check_hash_and_choose_next_range(*this, table, nullptr, last_key, next_key, nullptr, hash, target_minimum_block_size, target_maximum_block_size);
+		check_hash_and_choose_next_range(*this, table, nullptr, last_key, rows_to_hash, nullptr, hash, target_minimum_block_size, target_maximum_block_size);
 		RowRangeApplier<DatabaseClient>(row_replacer, table, prev_key, last_key).stream_from_input(input);
 		// nb. it's implied last_key is not [], as we would have been sent back a plain rows command for the combined range if that was needed
 	}
 
 	void handle_rows_and_hash_fail_command(const Table &table, RowReplacer<DatabaseClient> &row_replacer) {
 		// combo of the above ROWS and HASH_FAIL commands
-		ColumnValues prev_key, last_key, next_key, failed_last_key;
+		ColumnValues prev_key, last_key, failed_last_key;
+		size_t rows_to_hash;
 		string hash;
-		read_array(input, prev_key, last_key, next_key, failed_last_key); // the first array gives the range arguments, which is followed by one array for each row
+		read_array(input, prev_key, last_key, rows_to_hash, failed_last_key); // the first array gives the range arguments, which is followed by one array for each row
 		read_array(input, hash);
 		if (verbose >= VERY_VERBOSE) cout << "-> rows " << table.name << ' ' << values_list(client, table, prev_key) << ' ' << values_list(client, table, last_key) << " +" << endl;
-		if (verbose >= VERY_VERBOSE) cout << "-> hash " << table.name << ' ' << values_list(client, table, last_key) << ' ' << values_list(client, table, next_key) << " last-failure " << values_list(client, table, failed_last_key) << endl;
+		if (verbose >= VERY_VERBOSE) cout << "-> hash " << table.name << ' ' << values_list(client, table, last_key) << ' ' << rows_to_hash << " last-failure " << values_list(client, table, failed_last_key) << endl;
 
 		// same pipelining as the previous case
-		check_hash_and_choose_next_range(*this, table, nullptr, last_key, next_key, &failed_last_key, hash, target_minimum_block_size, target_maximum_block_size);
+		check_hash_and_choose_next_range(*this, table, nullptr, last_key, rows_to_hash, &failed_last_key, hash, target_minimum_block_size, target_maximum_block_size);
 		RowRangeApplier<DatabaseClient>(row_replacer, table, prev_key, last_key).stream_from_input(input);
 	}
 
-	inline void send_hash_next_command(const Table &table, const ColumnValues &prev_key, const ColumnValues &last_key, const string &hash) {
-		if (verbose >= VERY_VERBOSE) cout << "<- hash " << table.name << ' ' << values_list(client, table, prev_key) << ' ' << values_list(client, table, last_key) << endl;
-		send_command_begin(output, Commands::HASH_NEXT, prev_key, last_key);
+	inline void send_hash_next_command(const Table &table, const ColumnValues &prev_key, size_t rows_to_hash, const string &hash) {
+		if (verbose >= VERY_VERBOSE) cout << "<- hash " << table.name << ' ' << values_list(client, table, prev_key) << ' ' << rows_to_hash << endl;
+		send_command_begin(output, Commands::HASH_NEXT, prev_key, rows_to_hash);
 		send_array(output, hash);
 		send_command_end(output);
 	}
 
-	inline void send_hash_fail_command(const Table &table, const ColumnValues &prev_key, const ColumnValues &last_key, const ColumnValues &failed_last_key, const string &hash) {
-		if (verbose >= VERY_VERBOSE) cout << "<- hash " << table.name << ' ' << values_list(client, table, prev_key) << ' ' << values_list(client, table, last_key) << " last-failure " << values_list(client, table, failed_last_key) << endl;
-		send_command_begin(output, Commands::HASH_FAIL, prev_key, last_key, failed_last_key);
+	inline void send_hash_fail_command(const Table &table, const ColumnValues &prev_key, size_t rows_to_hash, const ColumnValues &failed_last_key, const string &hash) {
+		if (verbose >= VERY_VERBOSE) cout << "<- hash " << table.name << ' ' << values_list(client, table, prev_key) << ' ' << rows_to_hash << " last-failure " << values_list(client, table, failed_last_key) << endl;
+		send_command_begin(output, Commands::HASH_FAIL, prev_key, rows_to_hash, failed_last_key);
 		send_array(output, hash);
 		send_command_end(output);
 	}
@@ -416,18 +420,18 @@ struct SyncToWorker {
 		send_command(output, Commands::ROWS, prev_key, last_key);
 	}
 
-	inline void send_rows_and_hash_next_command(const Table &table, const ColumnValues &prev_key, const ColumnValues &last_key, const ColumnValues &next_key, const string &hash) {
+	inline void send_rows_and_hash_next_command(const Table &table, const ColumnValues &prev_key, const ColumnValues &last_key, size_t rows_to_hash, const string &hash) {
 		if (verbose >= VERY_VERBOSE) cout << "<- rows " << table.name << ' ' << values_list(client, table, prev_key) << ' ' << values_list(client, table, last_key) << " +" << endl;
-		if (verbose >= VERY_VERBOSE) cout << "<- hash " << table.name << ' ' << values_list(client, table, last_key) << ' ' << values_list(client, table, next_key) << endl;
-		send_command_begin(output, Commands::ROWS_AND_HASH_NEXT, prev_key, last_key, next_key);
+		if (verbose >= VERY_VERBOSE) cout << "<- hash " << table.name << ' ' << values_list(client, table, last_key) << ' ' << rows_to_hash << endl;
+		send_command_begin(output, Commands::ROWS_AND_HASH_NEXT, prev_key, last_key, rows_to_hash);
 		send_array(output, hash);
 		send_command_end(output);
 	}
 
-	inline void send_rows_and_hash_fail_command(const Table &table, const ColumnValues &prev_key, const ColumnValues &last_key, const ColumnValues &next_key, const ColumnValues &failed_last_key, const string &hash) {
+	inline void send_rows_and_hash_fail_command(const Table &table, const ColumnValues &prev_key, const ColumnValues &last_key, size_t rows_to_hash, const ColumnValues &failed_last_key, const string &hash) {
 		if (verbose >= VERY_VERBOSE) cout << "<- rows " << table.name << ' ' << values_list(client, table, prev_key) << ' ' << values_list(client, table, last_key) << " +" << endl;
-		if (verbose >= VERY_VERBOSE) cout << "<- hash " << table.name << ' ' << values_list(client, table, prev_key) << ' ' << values_list(client, table, last_key) << " last-failure " << values_list(client, table, failed_last_key) << endl;
-		send_command_begin(output, Commands::ROWS_AND_HASH_FAIL, prev_key, last_key, next_key, failed_last_key);
+		if (verbose >= VERY_VERBOSE) cout << "<- hash " << table.name << ' ' << values_list(client, table, last_key) << ' ' << rows_to_hash << " last-failure " << values_list(client, table, failed_last_key) << endl;
+		send_command_begin(output, Commands::ROWS_AND_HASH_FAIL, prev_key, last_key, rows_to_hash, failed_last_key);
 		send_array(output, hash);
 		send_command_end(output);
 	}
