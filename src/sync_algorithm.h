@@ -14,15 +14,11 @@ const size_t DEFAULT_MINIMUM_BLOCK_SIZE =       256*1024; // arbitrary, but need
 const size_t DEFAULT_MAXIMUM_BLOCK_SIZE = 1024*1024*1024; // arbitrary, but needs to be small enough we don't waste unjustifiable amounts of CPU time if a block hash doesn't match
 
 template <typename Worker>
-void check_hash_and_choose_next_range(Worker &worker, const Table &table, const ColumnValues *failed_prev_key, const ColumnValues &prev_key, size_t rows_to_hash, const ColumnValues *failed_last_key, const string &hash, size_t target_minimum_block_size, size_t target_maximum_block_size) {
-	if (hash.empty()) throw logic_error("No hash to check given");
-	if (rows_to_hash < 1) throw logic_error("Told to hash no rows");
+void check_hash_and_choose_next_range(Worker &worker, const Table &table, const ColumnValues *failed_prev_key, const ColumnValues &prev_key, const ColumnValues *failed_last_key, const string &given_hash, RowHasherAndLastKey &hasher, size_t target_minimum_block_size, size_t target_maximum_block_size) {
+	if (given_hash.empty()) throw logic_error("No hash to check given");
 
-	// the other end has given us their hash for the next rows_to_hash rows *after* prev_key, calculate our hash
-	RowHasherAndLastKey hasher(worker.hash_algorithm, table.primary_key_columns);
-	worker.client.retrieve_rows(hasher, table, prev_key, ColumnValues(), rows_to_hash);
-
-	if (hasher.finish() == hash) {
+	// the other end has given us their hash for the next rows_to_hash rows *after* prev_key, compare to our hash
+	if (hasher.finish() == given_hash) {
 		if (failed_prev_key) {
 			// send the previously-requested rows - since there's a span of successful rows after
 			// it, we don't want to combine the next hash command.

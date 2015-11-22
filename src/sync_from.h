@@ -121,22 +121,40 @@ struct SyncFromWorker {
 
 	void handle_hash_next_command(const Table *table) {
 		if (!table) throw command_error("Expected a table command before hash command");
+
 		ColumnValues prev_key;
 		size_t rows_to_hash;
-		string hash;
 		read_array(input, prev_key, rows_to_hash);
+
+		// calculate our hash for this range
+		RowHasherAndLastKey hasher(hash_algorithm, table->primary_key_columns);
+		client.retrieve_rows(hasher, *table, prev_key, ColumnValues(), rows_to_hash);
+		hasher.finish();
+
+		// meanwhile the other end has been doing the same thing simultaneously, which we can now receive
+		string hash;
 		read_all_arguments(input, hash);
-		check_hash_and_choose_next_range(*this, *table, nullptr, prev_key, rows_to_hash, nullptr, hash, target_minimum_block_size, target_maximum_block_size);
+
+		check_hash_and_choose_next_range(*this, *table, nullptr, prev_key, nullptr, hash, hasher, target_minimum_block_size, target_maximum_block_size);
 	}
 
 	void handle_hash_fail_command(const Table *table) {
 		if (!table) throw command_error("Expected a table command before hash command");
+
 		ColumnValues prev_key, failed_last_key;
 		size_t rows_to_hash;
-		string hash;
 		read_array(input, prev_key, rows_to_hash, failed_last_key);
+
+		// calculate our hash for this range
+		RowHasherAndLastKey hasher(hash_algorithm, table->primary_key_columns);
+		client.retrieve_rows(hasher, *table, prev_key, ColumnValues(), rows_to_hash);
+		hasher.finish();
+
+		// meanwhile the other end has been doing the same thing simultaneously, which we can now receive
+		string hash;
 		read_all_arguments(input, hash);
-		check_hash_and_choose_next_range(*this, *table, nullptr, prev_key, rows_to_hash, &failed_last_key, hash, target_minimum_block_size, target_maximum_block_size);
+
+		check_hash_and_choose_next_range(*this, *table, nullptr, prev_key, &failed_last_key, hash, hasher, target_minimum_block_size, target_maximum_block_size);
 	}
 
 	void handle_rows_command(const Table *table) {
@@ -148,22 +166,40 @@ struct SyncFromWorker {
 
 	void handle_rows_and_hash_next_command(const Table *table) {
 		if (!table) throw command_error("Expected a table command before rows+hash next command");
+
 		ColumnValues prev_key, last_key;
 		size_t rows_to_hash;
-		string hash;
 		read_array(input, prev_key, last_key, rows_to_hash);
+
+		// calculate our hash for this range
+		RowHasherAndLastKey hasher(hash_algorithm, table->primary_key_columns);
+		client.retrieve_rows(hasher, *table, last_key, ColumnValues(), rows_to_hash);
+		hasher.finish();
+
+		// meanwhile the other end has been doing the same thing simultaneously, which we can now receive
+		string hash;
 		read_all_arguments(input, hash);
-		check_hash_and_choose_next_range(*this, *table, &prev_key, last_key, rows_to_hash, nullptr, hash, target_minimum_block_size, target_maximum_block_size);
+
+		check_hash_and_choose_next_range(*this, *table, &prev_key, last_key, nullptr, hash, hasher, target_minimum_block_size, target_maximum_block_size);
 	}
 
 	void handle_rows_and_hash_fail_command(const Table *table) {
 		if (!table) throw command_error("Expected a table command before rows+hash fail command");
+
 		ColumnValues prev_key, last_key, failed_last_key;
 		size_t rows_to_hash;
-		string hash;
+
 		read_array(input, prev_key, last_key, rows_to_hash, failed_last_key);
+		// calculate our hash for this range
+		RowHasherAndLastKey hasher(hash_algorithm, table->primary_key_columns);
+		client.retrieve_rows(hasher, *table, last_key, ColumnValues(), rows_to_hash);
+		hasher.finish();
+
+		// meanwhile the other end has been doing the same thing simultaneously, which we can now receive
+		string hash;
 		read_all_arguments(input, hash);
-		check_hash_and_choose_next_range(*this, *table, &prev_key, last_key, rows_to_hash, &failed_last_key, hash, target_minimum_block_size, target_maximum_block_size);
+
+		check_hash_and_choose_next_range(*this, *table, &prev_key, last_key, &failed_last_key, hash, hasher, target_minimum_block_size, target_maximum_block_size);
 	}
 
 	void handle_export_snapshot_command() {
