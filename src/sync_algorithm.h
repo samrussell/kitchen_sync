@@ -11,7 +11,7 @@ struct sync_error: public runtime_error {
 };
 
 const size_t DEFAULT_MINIMUM_BLOCK_SIZE =       256*1024; // arbitrary, but needs to be big enough to cope with a moderate amount of latency
-const size_t DEFAULT_MAXIMUM_BLOCK_SIZE = 1024*1024*1024; // arbitrary, but needs to be small enough we don't waste unjustifiable amounts of CPU time if a block hash doesn't match
+const size_t DEFAULT_MAXIMUM_BLOCK_SIZE =  256*1024*1024; // arbitrary, but needs to be small enough we don't waste unjustifiable amounts of CPU time if a block hash doesn't match
 
 template <typename Worker>
 void check_hash_and_choose_next_range(Worker &worker, const Table &table, const ColumnValues *failed_prev_key, const ColumnValues &prev_key, const ColumnValues *failed_last_key, const string &given_hash, RowHasherAndLastKey &hasher, size_t target_minimum_block_size, size_t target_maximum_block_size) {
